@@ -1,0 +1,640 @@
+{% extends "main.html" %}
+{% load static %}
+{% load crispy_forms_tags %}
+{% block content %}
+
+<div class="row">
+    <div class="col-sm-9">
+        <p>This form does an orientations analysis from uploaded data.  The data should consist of either plunge and bearing angles or set of XYZ coordinates that describe the long orientation of an object. 
+        <p><strong>Plunge and bearing angles.</strong> Each line of data will represent one object.  There should be a column labeled plunge and another labeled bearing.  Both angles should be represented in decimal degrees.  Bearing 
+            angles should be in the range 0 to 180 or 0 to 360.  A bearing angle of 0 will be taken as north (or positive Y axis) in the plots.  A bearing angle of 90 is east or the positive X axis.  
+            Plunge angles should be in the range 0 to 90.  A plunge angle of 0 represents a horizontal object.  A plunge angle of 90 represents a vertical object.</p>
+        <p><strong>XYZ pairs.</strong> The data can be in one of three formats.  First, each line of data can represent one object.  In this case, the columns should be labeled X1, Y1, Z1, X2, Y2, and Z2 for 
+            the two recorded points.  Second, each line of data can represent one point, and two sequential lines of data will be taken as the two points for one object.  In this case, the columns should be labeled X, Y, Z.  Third,
+            this one is like the second data format except that the data can also contain objects with only one point and objects with more than two points.  In this case, though, you must have a field called Squid or a field called ID that is 
+            unique to each object.  My code will then count the number of records belonging to each Squid or ID and retain only those that have only two points.  This lets you easily drag and drop a CSV file from EDM into this page.
+            </p>
+        <p><strong>Uploaded data are not saved.</strong>  I use the data only while you are on this web page to calculate the appropriate statistics and make the figures.  That's it.  Once you leave this page, they are gone.</p>
+        <p><strong>This is open source.</strong> Not sure about the results? Have an idea for how to do something better?  Consult my GitHub page where the code to run this app is available.  Find a mistake?  Please do let
+            me know.  I want this code to work properly for everyone.  Don't like Python and Javascript? See also previously published R code on this <a href='https://github.com/surf3s/Orientations'>GitHub page</a>.</p>
+        <p><strong>Download results.</strong>  To save the figures, hover over them and click on the camera icon to download a PNG file.  I am working on allowing a vector download as well.  The download data button (at the bottom) includes the 
+            data used to make all figure here (though see also Benn statistics table).<br>
+        <p><strong>Cite me.</strong>  I prepared this page because I want it to be easy to do this kind of analysis.  I would appreciate it though if you could cite these two papers if you publish the results generated here.<br>
+            <small>McPherron, S. J.P. “Artifact Orientations and Site Formation Processes from Total Station Proveniences.” <i>Journal of Archaeological Science</i> 32, no. 7 (2005): 1003–14. <a href='https://doi.org/10.1016/j.jas.2005.01.015'>link</a>.</small><br>
+            <small>McPherron, Shannon P. “Additional Statistical and Graphical Methods for Analyzing Site Formation Processes Using Artifact Orientations.” <i>PLOS ONE</i> 13, no. 1 (January 2, 2018): e0190195. <a href='https://doi.org/10.1371/journal.pone.0190195'>link</a>.</small></p>
+        </div>
+</div>
+
+<div class="row mt-3">
+    <div class="col-sm-4">
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class='card'>
+                <div class="card-header">CSV File Upload</div>
+                <div class='card-body' id="drop-area">
+                    <div class="mb-3">
+                        <label for="collection" class="form-label">Drag and drop here or choose file.</label>
+                    </div>
+                    <input class="form-control" type="file" id="fileElem" accept=".csv" onchange="handleFiles(this.files)">
+                </div>
+            </div>
+        </form>
+    </div>
+    <div class="col-sm-4">
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class='card'>
+                <div class="card-header">Demostration Data</div>
+                <div class='card-body'>
+                    <div class="mb-3">
+                        <label for="collection" class="form-label"></label>
+                    </div>
+                    <button class="btn btn-primary mt-2" type="button" id="demoplot" onclick="demo_plot()">Demo plot</button>
+                    <button class="btn btn-primary mt-2" type="button" id="demoplot" onclick="demo_download()"><i class="fa fa-download"></i>&nbsp;Download demo data</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="orientations" class="row mt-4 d-none">
+    <div class="row">
+        <div class="col-12 col-md-2">
+            <div class="dropdown">
+                <button class="btn btn-secondary dropdown-toggle mt-3" type="button" id="colorby" data-bs-toggle="dropdown" aria-expanded="false">Color by</button>
+                <ul class="dropdown-menu" aria-labelledby="colorby" id="colorbylist">
+                    <li>test</li>
+                </ul>
+            </div>
+        </div>
+        <div class="col-12 col-md-3">
+            <label for="pointsize" class="form-label">Point size</label>
+            <input type="range" class="form-range" min="1" max="20" step="1" id="pointsize" oninput="set_pointsize(this)">
+        </div>
+        <div class="col-12 col-md-3">
+            <label for="opacity" class="form-label">Opacity</label>
+            <input type="range" class="form-range" min="0" max="1" step=".025" value=".75" id="opacity" oninput="set_opacity(this)">
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-12 col-md-6">
+            <div id="schmidt_diagram" class="chart"></div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div id="benn_diagram" class="chart"></div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-12 col-md-6">
+            <div id="rose_diagram_bearings" class="chart"></div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div id="rose_diagram_plunges" class="chart"></div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12 col-md-10">
+            <div id="chart" class="chart"></div>
+        </div>
+        <div class="col-12 col-md-2 d-flex">
+            <div class=""><br><br><br><br>
+                <div class='card mb-5'>
+                    <h5 class="card-header">Options</h5>
+                    <div class='card-body'>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="perspective" id="perspective_3d" value="3d" oninput="perspective(this)">
+                            <label class="form-check-label" for="perspective">
+                                3D
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="perspective" id="perspective_xy" value="xy" oninput="perspective(this)" checked>
+                            <label class="form-check-label" for="perspective">
+                                XY
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="perspective" id="perspective_xz" value="xz" oninput="perspective(this)">
+                            <label class="form-check-label" for="perspective">
+                                XZ
+                            </label>
+                        </div>
+
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="perspective" id="perspective_yz" value="yz" oninput="perspective(this)">
+                            <label class="form-check-label" for="perspective">
+                                YZ
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-md-6 mt-5">
+        <h5>Data used for Benn Diagram</h5>
+        <div id="benn_table"></div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-12 col-md-6" id="message"></div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-sm-4">
+            <button class="btn btn-primary mt-2" type="button" id="processed_download" onclick="processed_download()"><i class="fa fa-download"></i>&nbsp;Download processed data</button>
+        </div>
+        <div class="col-sm-4">
+            <button class="btn btn-primary mt-2" type="button" id="processed_download" onclick="benn_download()"><i class="fa fa-download"></i>&nbsp;Download Benn data</button>
+        </div>
+    </div>
+</div>
+
+
+<script>
+
+    var opacity_value = .75             // opacity
+    var pointsize_value = 10            // pointsize
+    var show_perspective = 'xy'         // which view is being displayed
+    var color_by = 'All'       // default for when page first loads
+
+    function show_widget(widgetname) {
+        let widget = document.getElementById(widgetname);
+        widget.className = widget.className.replace(' d-none', '');
+    };
+
+    function hide_widget(widgetname) {
+        let widget = document.getElementById(widgetname);
+        if (!widget.className.includes('d-none')) widget.className += ' d-none'; 
+    };
+
+
+    function set_opacity(object) {
+        opacity_value = object.value
+        let update = {
+          "marker.opacity": opacity_value,
+          opacity: opacity_value
+        };
+        Plotly.restyle('schmidt_diagram', update);
+        Plotly.restyle('benn_diagram', update);
+    }
+
+
+    function set_pointsize(object) {
+        let update;
+        pointsize_value = object.value;
+        update = {"marker.size": pointsize_value};
+        Plotly.restyle('schmidt_diagram', update);
+        Plotly.restyle('benn_diagram', update);
+    }
+
+
+    function perspective(object) {
+        document.body.style.cursor  = 'wait';
+        show_perspective = object.value;
+        point_plot();
+        document.getElementById('perspective_' + show_perspective).checked = true;
+        document.body.style.cursor  = 'default';
+    }
+
+
+    function setColorCode(object) {
+        color_by = object;
+        refresh();
+    }
+
+
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                // Does this cookie string begin with the name we want?
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+
+    async function demo_download() {
+
+        document.body.style.cursor  = 'wait';
+
+        let csrftoken = getCookie('csrftoken');
+        let response = await fetch("/orientations/callback/demodownload/",
+                                        {method: "POST",
+                                        headers: {'Content-type': 'application/json', 'X-CSRFToken': csrftoken,}});
+
+        if (response.ok) {
+            csv_data = await response.json();
+            if (response.ok) {
+                let csvContent = "data:text/csv;charset=utf-8," + csv_data['data']
+                var encodedUri = encodeURI(csvContent);
+                var link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "demo_data.csv");
+                document.body.appendChild(link); // Required for FF
+
+                link.click(); // This will download the data file named "my_data.csv".        
+            }
+        }
+
+        document.body.style.cursor  = 'default';
+
+    }
+
+
+    function benn_download() {
+
+        let csvContent = "data:text/csv;charset=utf-8," + chart_data['benn_csv']
+        var encodedUri = encodeURI(csvContent);
+        var link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "benn_data.csv");
+        document.body.appendChild(link); // Required for FF
+
+        link.click(); // This will download the data file named "my_data.csv".        
+
+    }
+
+
+    function processed_download() {
+
+        let csvContent = "data:text/csv;charset=utf-8," + chart_data['processed_data']
+        var encodedUri = encodeURI(csvContent);
+        var link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "orientations.csv");
+        document.body.appendChild(link); // Required for FF
+
+        link.click(); // This will download the data file named "my_data.csv".        
+
+    }
+
+
+    async function refresh() {
+
+        document.body.style.cursor  = 'wait';
+
+        let csrftoken = getCookie('csrftoken');
+        let response = await fetch("/orientations/callback/recolor/",
+                                        {method: "POST",
+                                        headers: {'Content-type': 'application/json', 'X-CSRFToken': csrftoken,}, 
+                                        body: JSON.stringify({data: chart_data['processed_data'],
+                                                                color_by: color_by})});
+        if (response.ok) {
+            try {
+                chart_data = await response.json();
+            }
+            catch(e) {
+                chart_data = {};
+            }
+            do_it();
+        }
+
+        document.body.style.cursor  = 'default';
+
+    }
+
+
+    function update_message() {
+        let widget = document.getElementById('message').innerHTML = chart_data['message']
+    }
+
+
+    function insert_benn_table() {
+        let widget = document.getElementById('benn_table').innerHTML = chart_data['benn_table']
+    }
+
+
+    function do_it() {
+        orientation_figures();
+        point_plot();
+        insert_benn_table();
+        update_message();
+    }
+
+
+    function update_colorby() {
+        let colorbylist = chart_data['color_by_fields']
+        build_simple_dropdown(colorbylist, document.getElementById('colorbylist'), 'setColorCode')
+    }
+
+
+    async function demo_plot() {
+        let csrftoken = getCookie('csrftoken');
+        response = await fetch("/orientations/callback/demo/",
+                                    {method: "POST",
+                                    headers: {'X-CSRFToken': csrftoken,}, 
+                                });
+
+        if (response.ok) {
+            try {
+                chart_data = await response.json();
+            }
+            catch(e) {
+                chart_data = {};
+             }
+
+            update_colorby();
+            do_it();
+        }
+
+    }
+
+
+    function build_simple_dropdown(item_list, widget, action) {
+        let inner_list = '';
+        for(var key in item_list) {
+                inner_list += '<li><a class="dropdown-item" href="#" onclick=' + action + '("'  + item_list[key] + '")>&nbsp;' + item_list[key] + '</a></li>';
+        }
+        widget.innerHTML = inner_list
+    }
+
+
+    let dropArea = document.getElementById('drop-area');
+    
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, preventDefaults, false)
+    })
+    
+    function preventDefaults (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    
+    ;['dragenter', 'dragover'].forEach(eventName => {
+      dropArea.addEventListener(eventName, highlight, false)
+    })
+    
+    ;['dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, unhighlight, false)
+    })
+    
+    function highlight(e) {
+      dropArea.classList.add('highlight')
+    }
+    
+    function unhighlight(e) {
+      dropArea.classList.remove('highlight')
+    }
+    
+    dropArea.addEventListener('drop', handleDrop, false)
+    
+    function handleDrop(e) {
+      let dt = e.dataTransfer
+      let files = dt.files
+    
+      handleFiles(files)
+    }
+    
+    function handleFiles(files) {
+      files = [...files]
+      files.forEach(uploadFile)
+    //   files.forEach(previewFile)
+    }
+    
+    async function uploadFile(file) {
+        let formData = new FormData()
+        formData.append('file', file);
+        formData.append('filename', file.name);
+
+        let csrftoken = getCookie('csrftoken');
+        response = await fetch("/orientations/callback/upload/",
+                                    {method: "POST",
+                                    headers: {'X-CSRFToken': csrftoken,}, 
+                                    body: formData});
+
+        if (response.ok) {
+            try {
+                chart_data = await response.json();
+            }
+            catch(e) {
+                chart_data = {};
+             }
+            if ('error' in chart_data) {
+
+            } else {
+                update_colorby();
+                do_it();
+            }
+        }
+
+    }
+
+
+    function orientation_figures() {
+        let color_scale_type = 'discrete';
+        if ('options' in chart_data) {
+            if ('color' in chart_data['options']) {
+                color_scale_type = chart_data['options']['color']
+            }
+        }
+
+        show_widget('orientations');
+        if ('schmidt' in chart_data) schmidt_diagram(color_scale_type);
+        if ('benn' in chart_data) benn_diagram(color_scale_type);
+        if ('rose' in chart_data) bearing_plunge_rose_diagrams(color_scale_type);
+    }
+
+
+    function bearing_plunge_rose_diagrams(color_scale_type) {
+        let rose_data, layout;
+        [rose_data, layout] = rose_diagram(color_scale_type, 'bearing');
+        Plotly.newPlot('rose_diagram_bearings', rose_data, layout);
+
+        [rose_data, layout] = rose_diagram(color_scale_type, 'plunge');
+        Plotly.newPlot('rose_diagram_plunges', rose_data, layout);
+    }
+
+
+    function rose_diagram(color_scale_type, data_type) {
+        rose_data = [];
+        for (var trace in chart_data["rose"]) {
+            a_trace = {
+                    r: chart_data["rose"][trace][data_type],
+                    mode: 'markers',
+                    type: 'barpolar',
+                    name: trace}
+            if (color_scale_type != 'discrete') {
+                a_trace['marker'] = {size: pointsize_value,
+                            color: chart_data["points"][trace]['color'],
+                            colorbar: {title: trace.slice(0,1).toUpperCase() + trace.slice(1).toLowerCase()}}}
+            rose_data.push(a_trace);
+        };
+
+        if (data_type == 'plunge') {
+            layout = {title: 'Rose Diagram Plunges (90)',
+                        hovermode: 'closest',
+                        polar: {
+                            sector: [0,90],
+                            barmode: "overlay",
+                            bargap: 0,
+                            }
+                    };
+        } else {
+            layout = {title: 'Rose Diagram Bearings (360)',
+                        hovermode: 'closest',
+                        polar: {
+                            barmode: "overlay",
+                            bargap: 0,
+                            angularaxis: {direction: "clockwise"},
+                            }
+                    };
+
+        }
+        return [rose_data, layout];
+    }
+
+
+    function schmidt_diagram(color_scale_type) {
+        schmidt_data = []
+        for (var trace in chart_data["schmidt"]) {
+            a_trace = {
+                    r: chart_data["schmidt"][trace]['r'],
+                    theta: chart_data["schmidt"][trace]['theta'],
+                    text: chart_data["schmidt"][trace]['text'],
+                    mode: 'markers',
+                    type: 'scatterpolar',
+                    opacity: opacity_value,
+                    marker: {size: pointsize_value},
+                    name: trace}
+            if (color_scale_type != 'discrete') {
+                a_trace['marker'] = {size: pointsize_value,
+                            color: chart_data["points"][trace]['color'],
+                            colorbar: {title: trace.slice(0,1).toUpperCase() + trace.slice(1).toLowerCase()}}}
+            schmidt_data.push(a_trace);
+        };
+
+        let layout = {title: 'Schmidt Diagram (lower hemisphere)',
+                        polar: {radialaxis: {range: [0,1]},
+                                angularaxis: {direction: 'clockwise'}},
+                        hovermode: "closest"
+                };
+
+        Plotly.newPlot('schmidt_diagram', schmidt_data, layout);
+    }
+
+
+    function benn_diagram(color_scale_type) {
+        benn_data = []
+        for (var trace in chart_data["benn"]) {
+            a_trace = {
+                    a: chart_data["benn"][trace]['isotrophy'],
+                    b: chart_data["benn"][trace]['residual'],
+                    c: chart_data["benn"][trace]['elongation'],
+                    text: chart_data["benn"][trace]['text'],
+                    mode: 'markers',
+                    type: 'scatterternary',
+                    opacity: opacity_value,
+                    marker: {size: pointsize_value},
+                    name: trace}
+            if (color_scale_type != 'discrete') {
+                a_trace['marker'] = {size: pointsize_value,
+                            color: chart_data["points"][trace]['color'],
+                            colorbar: {title: trace.slice(0,1).toUpperCase() + trace.slice(1).toLowerCase()}}}
+            benn_data.push(a_trace);
+        };
+
+        let layout = {title: 'Benn Diagram',
+                        hovermode: 'closest',
+                        ternary: {
+                            sum: 1,
+                            aaxis: {
+                                title: 'Isotropy'
+                            },
+                            baxis: {
+                                title: 'Planar',  
+                                showticklabels: false,
+                                showgrid: false,
+                                ticks: ""
+                            },
+                            caxis: {
+                                title: 'Linear'
+                            }
+                        }
+                    };
+
+        Plotly.newPlot('benn_diagram', benn_data, layout);
+    }
+
+
+    function point_plot() {
+        let titles = {'3d': '3D', 'xy': 'Plan View', 'xz': 'Front View', 'yz': 'Side View'}
+        let x = show_perspective[0];
+        let y = show_perspective[1];
+        let title = titles[show_perspective];
+        let data = [];
+
+        let color_scale_type = 'discrete';
+        if ('options' in chart_data) {
+            if ('color' in chart_data['options']) {
+                color_scale_type = chart_data['options']['color']
+            }
+        }
+
+        let plot_type = 'scatter';
+        if (show_perspective == '3d') {
+            plot_type = 'scatter3d';
+            x = 'x';
+            y = 'y';
+        }
+
+        for (var trace in chart_data["points"]) {
+            a_trace = {
+                    x: chart_data["points"][trace][x],
+                    y: chart_data["points"][trace][y],
+                    text: chart_data["points"][trace]['text'],
+                    mode: 'lines',
+                    type: plot_type,
+                    opacity: opacity_value,
+                    marker: {size: pointsize_value},
+                    name: trace}
+            if (plot_type == 'scatter3d') {a_trace['z'] = chart_data["points"][trace]['z']}
+            if (color_scale_type != 'discrete') {
+                a_trace['marker'] = {size: pointsize_value,
+                            color: chart_data["points"][trace]['color'],
+                            colorbar: {title: trace.slice(0,1).toUpperCase() + trace.slice(1).toLowerCase()}}}
+            data.push(a_trace);
+        };
+
+        let layout = {title: title,
+                        xaxis: {
+                            title: x.toUpperCase(),
+                            showgrid: true,
+                            zeroline: false
+                        },
+                        yaxis: {
+                            title: y.toUpperCase(),
+                            showgrid: true,
+                            zeroline: false,
+                            scaleanchor: 'x',
+                            scaleratio: 1
+                        },
+                        hovermode: "closest"
+                    };
+
+        if (plot_type == 'scatter3d') {
+            layout['scene'] = {'aspectmode': 'manual',
+                                'aspectratio': chart_data['options']['scaling']};
+        }
+        
+        Plotly.newPlot('chart', data, layout);
+
+        document.getElementById('colorby').innerHTML = 'Color by ' + color_by + ' ' 
+
+    }
+
+
+</script>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+{% endblock content %}
