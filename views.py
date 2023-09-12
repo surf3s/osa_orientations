@@ -6,6 +6,7 @@
 import json
 import ast
 import csv
+import os
 from itertools import cycle
 from plotly.express import colors as plotly_colors
 
@@ -26,6 +27,8 @@ from osa.views import add_section
 
 from src.views import clean_df_column_names
 
+from myproject.settings import STATIC_ROOT
+
 
 def orientations(request):
     _ = get_token(request)
@@ -34,6 +37,11 @@ def orientations(request):
     context['title'] = 'Orientations Analysis'
     context['errors'] = []
     return render(request, 'orientations/orientations.html', context)
+
+
+def orientations_r(request):
+    context = {}
+    return render(request, 'orientations/orientations_in_r.html')
 
 
 def get_database(section):
@@ -59,7 +67,7 @@ def are_valid(data):
         return {'valid': True}
     if all(name in list(data.columns) for name in ['Bearing', 'Plunge']):
         return {'valid': True}
-    return {'valid': False, 'Message': 'Missing columns called either X, Y, and Z or X1, Y1, Z1, X2, Y2, and Z2 or Plunge and Bearing.'}
+    return {'valid': False, 'Message': 'Error: Missing columns called either X, Y, and Z or X1, Y1, Z1, X2, Y2, and Z2 or Plunge and Bearing.'}
 
 
 def interleave_with_spacer(x1, x2):
@@ -104,10 +112,10 @@ def callback(request, endpoint):
         write_file(filename, request.FILES['file'].file)
 
     elif endpoint == 'demo':
-        filename = 'cc-a1-2-shots-clean.csv'
+        filename = os.path.join(STATIC_ROOT, 'osa/orientations/cc-a1-2-shots-clean.csv')
 
     elif endpoint == 'demodownload':
-        filename = 'cc-a1-2-shots-clean.csv'
+        filename = os.path.join(STATIC_ROOT, 'osa/orientations/cc-a1-2-shots-clean.csv')
         raw_data = pd.read_csv(filename)
         return HttpResponse(json.dumps({'data': raw_data.to_csv(quoting=csv.QUOTE_NONNUMERIC, line_terminator='\r\n', index=False)}), content_type='application/json')
 
@@ -119,8 +127,12 @@ def callback(request, endpoint):
     if filename:
         try:
             raw_data = pd.read_csv(filename)            # Need error trapping here for bad csv file
+            if 'osa/orientations/cc-a1-2-shots-clean.csv' not in filename:
+                os.remove(filename)
         except UnicodeDecodeError:
-            return HttpResponse(json.dumps({'error': "Invalid CSV file."}), content_type='application/json')
+            if 'osa/orientations/cc-a1-2-shots-clean.csv' not in filename:
+                os.remove(filename)
+            return HttpResponse(json.dumps({'error': "Error: Invalid CSV file."}), content_type='application/json')
 
         raw_data = title_case_columns(raw_data)
         if are_valid(raw_data)['valid']:
@@ -133,7 +145,7 @@ def callback(request, endpoint):
                 processed_data = raw_data
             processed_data['All'] = 'All'           # Add a column to color by
         else:
-            return HttpResponse(json.dumps({'error': are_valid(raw_data)['messsage']}), content_type='application/json')
+            return HttpResponse(json.dumps({'error': are_valid(raw_data)['Message']}), content_type='application/json')
 
     if not processed_data.empty:
         processed_data = schdmit_statistics(processed_data)
