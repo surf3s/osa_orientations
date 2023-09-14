@@ -14,6 +14,8 @@ from io import StringIO
 
 import pandas as pd
 import numpy as np
+from scipy.spatial.transform import Rotation as R
+from scipy.stats import circmean, circstd
 
 from trimesh.visual.color import hex_to_rgba
 from trimesh import Trimesh
@@ -104,6 +106,7 @@ def callback(request, endpoint):
 
     processed_data = pd.DataFrame()
     benn_results = pd.DataFrame(columns=['Isotrophy', 'Elongation', 'Residual', 'N'])
+    circstat_results = pd.DataFrame(columns=['Bearing Mean', 'Bearing SD', 'Plunge Mean', 'Plunge SD', 'N'])
     filename = None
     color_field = "All"
 
@@ -117,19 +120,26 @@ def callback(request, endpoint):
     elif endpoint == 'demodownload':
         filename = os.path.join(STATIC_ROOT, 'osa/orientations/cc-a1-2-shots-clean.csv')
         raw_data = pd.read_csv(filename)
-        return HttpResponse(json.dumps({'data': raw_data.to_csv(quoting=csv.QUOTE_NONNUMERIC, line_terminator='\r\n', index=False)}), content_type='application/json')
+        return HttpResponse(json.dumps({'data': raw_data.to_csv(quoting=csv.QUOTE_NONNUMERIC, lineterminator='\r\n', index=False)}), content_type='application/json')
 
     elif endpoint == 'recolor':
         body = ast.literal_eval(request.body.decode('UTF-8'))
         processed_data = pd.read_csv(StringIO(body['data']))
         color_field = body['color_by']
 
+    elif endpoint == 'plydownload':
+        body = ast.literal_eval(request.body.decode('UTF-8'))
+        processed_data = pd.read_csv(StringIO(body['data']))
+        color_field = body['color_by']
+        ply = make_ply(processed_data, color_field)
+        return HttpResponse(ply, content_type='application/json')
+
     if filename:
         try:
             raw_data = pd.read_csv(filename)            # Need error trapping here for bad csv file
             if 'osa/orientations/cc-a1-2-shots-clean.csv' not in filename:
                 os.remove(filename)
-        except UnicodeDecodeError:
+        except [UnicodeDecodeError, FileNotFoundError] as e:
             if 'osa/orientations/cc-a1-2-shots-clean.csv' not in filename:
                 os.remove(filename)
             return HttpResponse(json.dumps({'error': "Error: Invalid CSV file."}), content_type='application/json')
@@ -168,15 +178,18 @@ def callback(request, endpoint):
                         text = interleave_with_spacer(list(processed_data[processed_data[color_field] == color].Squid.values), list(processed_data[processed_data[color_field] == color].Squid.values))
                     else:
                         text = interleave_with_spacer(list(processed_data[processed_data[color_field] == color].index), list(processed_data[processed_data[color_field] == color].index))
-                    results["points"][color] = {'x': interleave_with_spacer(list(processed_data[processed_data[color_field] == color].X1.values), list(processed_data[processed_data[color_field] == color].X2.values)),
-                                                'y': interleave_with_spacer(list(processed_data[processed_data[color_field] == color].Y1.values), list(processed_data[processed_data[color_field] == color].Y2.values)),
-                                                'z': interleave_with_spacer(list(processed_data[processed_data[color_field] == color].Z1.values), list(processed_data[processed_data[color_field] == color].Z2.values)),
+                    results["points"][color] = {'x': interleave_with_spacer(list(processed_data[processed_data[color_field] == color].X1.values.astype(float)), list(processed_data[processed_data[color_field] == color].X2.values.astype(float))),
+                                                'y': interleave_with_spacer(list(processed_data[processed_data[color_field] == color].Y1.values.astype(float)), list(processed_data[processed_data[color_field] == color].Y2.values.astype(float))),
+                                                'z': interleave_with_spacer(list(processed_data[processed_data[color_field] == color].Z1.values.astype(float)), list(processed_data[processed_data[color_field] == color].Z2.values.astype(float))),
                                                 'text': text}
 
                 isotrophy, elongation, residual = benn_statistics(processed_data[processed_data[color_field] == color])
                 benn_results.loc[color] = [isotrophy, elongation, residual, len(processed_data[processed_data[color_field] == color])]
-                # results['points'][color]['text'] = insert_empty_spacers(results['points'][color]['text'])
-
+                circstat_results.loc[color] = [round(circmean(processed_data[processed_data[color_field] == color].bearing.values, high=360), 3),
+                                                round(circstd(processed_data[processed_data[color_field] == color].bearing.values, high=90), 3),
+                                                round(circmean(processed_data[processed_data[color_field] == color].plunge.values, high=360), 3),
+                                                round(circstd(processed_data[processed_data[color_field] == color].plunge.values, high=90), 3),
+                                                len(processed_data[processed_data[color_field] == color])]
                 if 'Squid' in processed_data.columns:
                     text = list(processed_data[processed_data[color_field] == color].Squid.values)
                 else:
@@ -197,7 +210,9 @@ def callback(request, endpoint):
         results['processed_data'] = processed_data.drop(labels=['rise', 'run', 'delta_x', 'delta_y', 'delta_z'], axis=1).to_csv()
         results['color_by_fields'] = get_color_by_fields(processed_data)
         results['benn_table'] = clean_pandas_html_table(benn_results.to_html())
-        results['benn_csv'] = benn_results.to_csv(quoting=csv.QUOTE_NONNUMERIC, line_terminator='\r\n')
+        results['benn_csv'] = benn_results.to_csv(quoting=csv.QUOTE_NONNUMERIC, lineterminator='\r\n')
+        results['circstats_table'] = clean_pandas_html_table(circstat_results.to_html())
+        results['circstats_csv'] = circstat_results.to_csv(quoting=csv.QUOTE_NONNUMERIC, lineterminator='\r\n')
         return HttpResponse(json.dumps(results), content_type='application/json')
 
     else:
@@ -235,6 +250,49 @@ def bin_plunges(plunges):
 def xyz_3d_scaling(xyz_data):
     x, y, z = xyz_data[['X1', 'Y1', 'Z1']].max() - xyz_data[['X1', 'Y1', 'Z1']].min() if xyz_data.shape[0] > 0 else (1, 1, 1)
     return (dict(x=1, y=y / x if x != 0 else 1, z=z / x if x != 0 else 1))
+
+
+def make_ply(processed_data, color_field):
+    # These are processed data with X1, Y1, Z1 and X2, Y2, Z2 as well as plunge and bearing angle in decimal degrees
+
+    # get artifact lengths
+    # make ply box
+    # scale the box by artifact lengths
+    # rotate box onto artifact
+    color_code = '#FECB52'
+    opacity = 255
+    colors = []
+    faces = []
+    vertices = []
+    vertex_count = 0
+    results = {'ply': ''}
+
+    for color, color_code in zip(sorted(processed_data[color_field].unique()), cycle(plotly_colors.qualitative.D3)):
+        for index, row in processed_data[processed_data[color_field] == color].iterrows():
+            # a_vial = point_to_boxdf([row.x, row.y, row.z], [size, size, size])
+            artifact_length = np.sqrt((row.X1 - row.X2)**2 + (row.Y1 - row.Y2)**2 + (row.Z1 - row.Z2)**2)
+            center_x = (row.X1 + row.X2) / 2
+            center_y = (row.Y1 + row.Y2) / 2
+            center_z = (row.Z1 + row.Z2) / 2
+            a_vial = point_to_boxdf([0, 0, 0], [.0125, artifact_length / 2, .0125])
+            # need to now rotate the vector 0, 0, 1 onto the artifact and apply that to the box made here
+            r = R.from_euler('x', -row.plunge, degrees=True)
+            rot_box = r.apply(a_vial)
+            r = R.from_euler('z', -row.bearing, degrees=True)
+            rot_box = r.apply(rot_box)
+            a_vial = pd.DataFrame({'x': rot_box[:, 0] + center_x, 'y': rot_box[:, 1] + center_y, 'z': rot_box[:, 2] + center_z})
+            vial_vertices, vial_faces = make_ply_cube(a_vial, vertex_count)
+            vertices += vial_vertices
+            faces += vial_faces
+            vertex_count += 8
+            color = hex_to_rgba(color_code)
+            color[3] = opacity
+            colors += [color] * 8
+
+    points_3d = Trimesh(vertices=vertices, faces=faces, vertex_colors=colors)
+    results['ply'] = export_ply(points_3d, encoding='ascii').decode('utf-8')
+
+    return json.dumps(results)
 
 
 # Not implimented yet

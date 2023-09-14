@@ -1,2 +1,2 @@
 ### Django app for orientation analysis
-This code is a Django app to do some artifact orientations analysis.  If you do not want to run a Djano app, the code can still be used in Python to do orientations analysis.  The results are made in Python.  The plots are made in the html pages using Javascript.
+This code is a Django app to do some artifact orientations analysis.  If you do not want to run a Django app, the code can still be used in Python to do orientations analysis.  The results are made in Python.  The plots are made in the html pages using Javascript.

@@ -1,3 +1,4 @@
+<!-- check https://codepen.io/etpinard/pen/zzzBXv?editors=0010 -->
 {% extends "main.html" %}
 {% load static %}
 {% load crispy_forms_tags %}
@@ -17,8 +18,8 @@
         <p><strong>Uploaded data are not saved.</strong>  I use the data only while you are on this web page to calculate the appropriate statistics and make the figures.  That's it.  Once you leave this page, they are gone.</p>
         <p><strong>This is open source.</strong> Not sure about the results? Have an idea for how to do something better?  Consult my <a href="https://github.com/surf3s/osa_orientations">GitHub page</a> where the code to run this app is available.  Find a mistake?  Please do let
             me know.  I want this code to work properly for everyone.  Don't like Python and Javascript? See also previously published R code on this <a href='https://github.com/surf3s/Orientations'>GitHub page</a>.</p>
-        <p><strong>Download results.</strong>  To save the figures, hover over them and click on the camera icon to download a PNG file.  I am working on allowing a vector download as well.  The download data button (at the bottom) includes the 
-            data used to make all figure here (though see also Benn statistics table).<br>
+        <p><strong>Download results.</strong>  To save the figures, hover over them and click on the camera icon to download an SVG (vector graphics) file.  The download data button (at the bottom) includes the 
+            data used to make all figure here (though see also Benn statistics table and download).<br>
         <p><strong>Cite me.</strong>  I prepared this page because I want it to be easy to do this kind of analysis.  I would appreciate it though if you could cite these two papers if you publish the results generated here.<br>
             <small>McPherron, S. J.P. “Artifact Orientations and Site Formation Processes from Total Station Proveniences.” <i>Journal of Archaeological Science</i> 32, no. 7 (2005): 1003–14. <a href='https://doi.org/10.1016/j.jas.2005.01.015'>link</a>.</small><br>
             <small>McPherron, Shannon P. “Additional Statistical and Graphical Methods for Analyzing Site Formation Processes Using Artifact Orientations.” <i>PLOS ONE</i> 13, no. 1 (January 2, 2018): e0190195. <a href='https://doi.org/10.1371/journal.pone.0190195'>link</a>.</small></p>
@@ -35,7 +36,7 @@
                     <div class="mb-3">
                         <label for="collection" class="form-label">Drag and drop here or choose file.</label>
                     </div>
-                    <input class="form-control" type="file" id="fileElem" accept=".csv" onchange="handleFiles(this.files)">
+                    <input class="form-control" type="file" id="fileElem" accept=".csv" onchange="handleFiles(this.files)"> 
                 </div>
             </div>
         </form>
@@ -141,18 +142,21 @@
         <div id="benn_table"></div>
     </div>
 
+    <div class="col-12 col-md-6 mt-5">
+        <h5>Circular Statistics</h5>
+        <div id="circstats_table"></div>
+    </div>
+
     <div class="row mt-3">
         <div class="col-12 col-md-6" id="message"></div>
     </div>
 
     <div class="row mt-3">
-        <div class="col-sm-3">
+        <div class="col-sm-10">
             <button class="btn btn-primary mt-2" type="button" id="processed_download" onclick="processed_download()"><i class="fa fa-download"></i>&nbsp;Download processed data</button>
-        </div>
-        <div class="col-sm-3">
-            <button class="btn btn-primary mt-2" type="button" id="processed_download" onclick="benn_download()"><i class="fa fa-download"></i>&nbsp;Download Benn data</button>
-        </div>
-        <div class="col-sm-3">
+            <button class="btn btn-primary mt-2" type="button" id="processed_download" onclick="benn_download()"><i class="fa fa-download"></i>&nbsp;Download Benn results</button>
+            <button class="btn btn-primary mt-2" type="button" id="processed_download" onclick="circstats_download()"><i class="fa fa-download"></i>&nbsp;Download circular stats</button>
+            <button class="btn btn-primary mt-2" type="button" id="processed_download" onclick="ply_download()"><i class="fa fa-download"></i>&nbsp;Download PLY</button>
             <a class="btn btn-primary mt-2" href="orientations_r" role="button">R code for these plots</a>
         </div>
     </div>
@@ -164,7 +168,7 @@
     var opacity_value = .75             // opacity
     var pointsize_value = 10            // pointsize
     var show_perspective = 'xy'         // which view is being displayed
-    var color_by = 'All'       // default for when page first loads
+    var color_by = 'All'                // default for when page first loads
 
     function show_widget(widgetname) {
         let widget = document.getElementById(widgetname);
@@ -257,6 +261,50 @@
     }
 
 
+    async function ply_download() {
+
+        document.body.style.cursor  = 'wait';
+
+        let csrftoken = getCookie('csrftoken');
+        let response = await fetch("/orientations/callback/plydownload/",
+                                        {method: "POST",
+                                        headers: {'Content-type': 'application/json', 'X-CSRFToken': csrftoken,}, 
+                                        body: JSON.stringify({data: chart_data['processed_data'],
+                                                                color_by: color_by})});
+
+        if (response.ok) {
+            let ply = await response.json();
+            if (response.ok) {
+                let plyContent = "data:text/csv;charset=utf-8," + ply['ply']
+                var encodedUri = encodeURI(plyContent);
+                var link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "orientations.ply");
+                document.body.appendChild(link); // Required for FF
+
+                link.click(); // This will download the data file named "orientations.ply".
+            }
+        }
+
+        document.body.style.cursor  = 'default';
+
+    }
+
+
+    function circstats_download() {
+
+        let csvContent = "data:text/csv;charset=utf-8," + chart_data['circstats_csv']
+        var encodedUri = encodeURI(csvContent);
+        var link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "circstats_data.csv");
+        document.body.appendChild(link); // Required for FF
+
+        link.click(); // This will download the data file named "my_data.csv".        
+
+    }
+
+
     function benn_download() {
 
         let csvContent = "data:text/csv;charset=utf-8," + chart_data['benn_csv']
@@ -316,14 +364,19 @@
 
 
     function insert_benn_table() {
-        let widget = document.getElementById('benn_table').innerHTML = chart_data['benn_table']
+        document.getElementById('benn_table').innerHTML = chart_data['benn_table']
     }
 
+
+    function insert_circstats_table() {
+        document.getElementById('circstats_table').innerHTML = chart_data['circstats_table']
+    }
 
     function do_it() {
         orientation_figures();
         point_plot();
         insert_benn_table();
+        insert_circstats_table();
         update_message();
     }
 
@@ -462,12 +515,13 @@
 
 
     function bearing_plunge_rose_diagrams(color_scale_type) {
-        let rose_data, layout;
-        [rose_data, layout] = rose_diagram(color_scale_type, 'bearing');
-        Plotly.newPlot('rose_diagram_bearings', rose_data, layout);
+        let rose_data, layout, config;
 
-        [rose_data, layout] = rose_diagram(color_scale_type, 'plunge');
-        Plotly.newPlot('rose_diagram_plunges', rose_data, layout);
+        [rose_data, layout, config] = rose_diagram(color_scale_type, 'bearing');
+        Plotly.newPlot('rose_diagram_bearings', rose_data, layout, config);
+
+        [rose_data, layout, config] = rose_diagram(color_scale_type, 'plunge');
+        Plotly.newPlot('rose_diagram_plunges', rose_data, layout, config);
     }
 
 
@@ -484,6 +538,16 @@
                             color: chart_data["points"][trace]['color'],
                             colorbar: {title: trace.slice(0,1).toUpperCase() + trace.slice(1).toLowerCase()}}}
             rose_data.push(a_trace);
+        };
+
+        let config = {
+            toImageButtonOptions: {
+                format: 'svg', // one of png, svg, jpeg, webp
+                filename: 'rose_diagram_plunges',
+                height: 500,
+                width: 700,
+                scale: 1 // Multiply title/legend/axis/canvas sizes by this factor
+            }
         };
 
         if (data_type == 'plunge') {
@@ -504,9 +568,9 @@
                             angularaxis: {direction: "clockwise"},
                             }
                     };
-
+            config['toImageButtonOptions']['filename'] = 'rose_diagram_bearings';
         }
-        return [rose_data, layout];
+        return [rose_data, layout, config];
     }
 
 
@@ -535,7 +599,17 @@
                         hovermode: "closest"
                 };
 
-        Plotly.newPlot('schmidt_diagram', schmidt_data, layout);
+        let config = {
+            toImageButtonOptions: {
+                format: 'svg', // one of png, svg, jpeg, webp
+                filename: 'schmidt_diagram',
+                height: 500,
+                width: 700,
+                scale: 1 // Multiply title/legend/axis/canvas sizes by this factor
+            }
+        };
+
+        Plotly.newPlot('schmidt_diagram', schmidt_data, layout, config);
     }
 
 
@@ -578,7 +652,17 @@
                         }
                     };
 
-        Plotly.newPlot('benn_diagram', benn_data, layout);
+        let config = {
+            toImageButtonOptions: {
+                format: 'svg', // one of png, svg, jpeg, webp
+                filename: 'benn_diagram',
+                height: 500,
+                width: 700,
+                scale: 1 // Multiply title/legend/axis/canvas sizes by this factor
+            }
+        };
+
+        Plotly.newPlot('benn_diagram', benn_data, layout, config);
     }
 
 
@@ -641,8 +725,18 @@
             layout['scene'] = {'aspectmode': 'manual',
                                 'aspectratio': chart_data['options']['scaling']};
         }
-        
-        Plotly.newPlot('chart', data, layout);
+
+        let config = {
+            toImageButtonOptions: {
+                format: 'svg', // one of png, svg, jpeg, webp
+                filename: 'point_plot',
+                height: 500,
+                width: 700,
+                scale: 1 // Multiply title/legend/axis/canvas sizes by this factor
+            }
+        };
+
+        Plotly.newPlot('chart', data, layout, config);
 
         document.getElementById('colorby').innerHTML = 'Color by ' + color_by + ' ' 
 
